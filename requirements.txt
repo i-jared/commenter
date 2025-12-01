@@ -1,3 +1,4 @@
 python-docx
 pymupdf
 PyQt6
+openai

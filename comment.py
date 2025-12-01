@@ -12,6 +12,114 @@ from docx import Document
 # --- PDF imports ---
 import fitz  # PyMuPDF
 
+# --- OpenAI import ---
+from openai import OpenAI
+
+def extract_text(file_path: str) -> str:
+    """Extracts text content from .docx, .pdf, or text files."""
+    if not file_path or not os.path.exists(file_path):
+        return ""
+    
+    ext = os.path.splitext(file_path)[1].lower()
+    
+    try:
+        if ext == ".docx":
+            doc = Document(file_path)
+            return "\n".join([p.text for p in doc.paragraphs])
+        elif ext == ".pdf":
+            doc = fitz.open(file_path)
+            text = ""
+            for page in doc:
+                text += page.get_text()
+            return text
+        else:
+            # Assume text file
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                return f.read()
+    except Exception as e:
+        print(f"Error extracting text from {file_path}: {e}")
+        return ""
+
+def generate_annotations(doc_path: str, rubric_path: str, assign_kb_path: str, general_kb_path: str) -> List[Dict[str, Any]]:
+    """
+    Generates annotations using OpenAI API based on the input document and auxiliary files.
+    """
+    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+    # Extract text from all documents
+    doc_text = extract_text(doc_path)
+    rubric_text = extract_text(rubric_path)
+    assign_kb_text = extract_text(assign_kb_path)
+    general_kb_text = extract_text(general_kb_path)
+
+    system_prompt = """
+    You are a helpful teaching assistant. Your goal is to grade a paper and provide feedback.
+    You will be provided with the student's paper, a rubric, an assignment knowledge base, and a general knowledge base.
+    
+    Your output must be a valid JSON object containing a list of annotations. 
+    The JSON structure should be exactly as follows:
+    [
+      {
+        "target": {
+          "text": "exact text from the paper to attach the comment to",
+          "occurrence": "first" 
+        },
+        "comment": {
+          "text": "The feedback comment",
+          "author": "AI Grader"
+        }
+      }
+    ]
+    
+    Ensure the "text" in "target" matches a specific sentence or phrase in the student's paper EXACTLY so it can be located.
+    """
+
+    user_content = f"""
+    ## Student Paper (Input):
+    {doc_text}
+    
+    ## Rubric:
+    {rubric_text}
+    
+    ## Assignment Knowledge Base:
+    {assign_kb_text}
+    
+    ## General Knowledge Base:
+    {general_kb_text}
+    
+    Grade this paper based on the provided context.
+    """
+
+    try:
+        completion = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content}
+            ],
+            response_format={"type": "json_object"}
+        )
+        
+        content = completion.choices[0].message.content
+        
+        # Parse the JSON response
+        # The model might return { "annotations": [...] } or just [...]
+        data = json.loads(content)
+        
+        if isinstance(data, list):
+            return data
+        elif isinstance(data, dict):
+            # Check if it's wrapped in a key like 'annotations'
+            for key in data:
+                if isinstance(data[key], list):
+                    return data[key]
+            # If it's a single annotation object
+            return [data]
+        else:
+            return []
+
+    except Exception as e:
+        raise RuntimeError(f"OpenAI API Error: {e}")
 
 def load_annotations(json_path: str) -> List[Dict[str, Any]]:
     with open(json_path, "r", encoding="utf-8") as f:
@@ -224,6 +332,10 @@ def main():
         description="Add comments/annotations to DOCX/PDF based on a JSON spec."
     )
     parser.add_argument("document_path", help="Path to input .docx or .pdf")
+    # Optional now as we might not use it if we were doing LLM via CLI, 
+    # but for backwards compatibility we'll keep it or make it optional?
+    # For now, let's keep the original CLI structure as is for manual use, 
+    # but the GUI uses the library functions directly.
     parser.add_argument("json_path", help="Path to JSON file with annotation specs")
     parser.add_argument(
         "-o",
@@ -265,4 +377,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

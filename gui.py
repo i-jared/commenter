@@ -12,41 +12,62 @@ class CommenterApp(QWidget):
 
     def initUI(self):
         self.setWindowTitle('Document Commenter UI')
-        self.setGeometry(300, 300, 600, 250)
+        self.setGeometry(300, 300, 600, 400)
 
         layout = QVBoxLayout()
 
+        # --- OpenAI API Key ---
+        layout.addWidget(QLabel('OpenAI API Key:'))
+        self.entry_api_key = QLineEdit()
+        self.entry_api_key.setEchoMode(QLineEdit.EchoMode.Password)
+        # Try to load from env
+        env_key = os.environ.get("OPENAI_API_KEY", "")
+        if env_key:
+            self.entry_api_key.setText(env_key)
+        layout.addWidget(self.entry_api_key)
+
         # --- Input Document Selection ---
-        layout.addWidget(QLabel('Input Document (.docx or .pdf):'))
+        layout.addWidget(QLabel('Input Document (Paper to Grade):'))
         
         doc_layout = QHBoxLayout()
         self.entry_doc = QLineEdit()
         doc_layout.addWidget(self.entry_doc)
         
         btn_browse_doc = QPushButton('Browse')
-        btn_browse_doc.clicked.connect(self.browse_doc)
+        btn_browse_doc.clicked.connect(lambda: self.browse_file(self.entry_doc, "Select Input Document", "Documents (*.docx *.pdf)"))
         doc_layout.addWidget(btn_browse_doc)
         
         layout.addLayout(doc_layout)
 
-        # --- Annotation JSON Selection ---
-        layout.addWidget(QLabel('Annotations JSON Source:'))
-        
-        json_layout = QHBoxLayout()
-        self.entry_json = QLineEdit()
-        
-        # Set default to annotations-example.json if it exists
-        default_json = os.path.abspath("annotations-example.json")
-        if os.path.exists(default_json):
-            self.entry_json.setText(default_json)
-            
-        json_layout.addWidget(self.entry_json)
-        
-        btn_browse_json = QPushButton('Browse')
-        btn_browse_json.clicked.connect(self.browse_json)
-        json_layout.addWidget(btn_browse_json)
-        
-        layout.addLayout(json_layout)
+        # --- Rubric Selection ---
+        layout.addWidget(QLabel('Rubric (Optional):'))
+        rubric_layout = QHBoxLayout()
+        self.entry_rubric = QLineEdit()
+        rubric_layout.addWidget(self.entry_rubric)
+        btn_browse_rubric = QPushButton('Browse')
+        btn_browse_rubric.clicked.connect(lambda: self.browse_file(self.entry_rubric, "Select Rubric", "Documents (*.docx *.pdf *.txt)"))
+        rubric_layout.addWidget(btn_browse_rubric)
+        layout.addLayout(rubric_layout)
+
+        # --- Assignment Knowledge Base Selection ---
+        layout.addWidget(QLabel('Assignment Knowledge Base (Optional):'))
+        assign_kb_layout = QHBoxLayout()
+        self.entry_assign_kb = QLineEdit()
+        assign_kb_layout.addWidget(self.entry_assign_kb)
+        btn_browse_assign_kb = QPushButton('Browse')
+        btn_browse_assign_kb.clicked.connect(lambda: self.browse_file(self.entry_assign_kb, "Select Assignment KB", "Documents (*.docx *.pdf *.txt)"))
+        assign_kb_layout.addWidget(btn_browse_assign_kb)
+        layout.addLayout(assign_kb_layout)
+
+        # --- General Knowledge Base Selection ---
+        layout.addWidget(QLabel('General Knowledge Base (Optional):'))
+        general_kb_layout = QHBoxLayout()
+        self.entry_general_kb = QLineEdit()
+        general_kb_layout.addWidget(self.entry_general_kb)
+        btn_browse_general_kb = QPushButton('Browse')
+        btn_browse_general_kb.clicked.connect(lambda: self.browse_file(self.entry_general_kb, "Select General KB", "Documents (*.docx *.pdf *.txt)"))
+        general_kb_layout.addWidget(btn_browse_general_kb)
+        layout.addLayout(general_kb_layout)
 
         # --- Run Button ---
         self.btn_run = QPushButton('Run Commenter')
@@ -61,29 +82,21 @@ class CommenterApp(QWidget):
 
         self.setLayout(layout)
 
-    def browse_doc(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, 
-            "Select Input Document", 
-            "", 
-            "Documents (*.docx *.pdf);;Word Document (*.docx);;PDF Document (*.pdf);;All Files (*)"
-        )
+    def browse_file(self, line_edit, title, filter_str):
+        file_path, _ = QFileDialog.getOpenFileName(self, title, "", filter_str + ";;All Files (*)")
         if file_path:
-            self.entry_doc.setText(file_path)
-
-    def browse_json(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, 
-            "Select Annotations JSON", 
-            "", 
-            "JSON Files (*.json);;All Files (*)"
-        )
-        if file_path:
-            self.entry_json.setText(file_path)
+            line_edit.setText(file_path)
 
     def run_commenter(self):
         doc_path = self.entry_doc.text().strip()
-        json_path = self.entry_json.text().strip()
+        api_key = self.entry_api_key.text().strip()
+        rubric_path = self.entry_rubric.text().strip()
+        assign_kb_path = self.entry_assign_kb.text().strip()
+        general_kb_path = self.entry_general_kb.text().strip()
+
+        if not api_key:
+            QMessageBox.critical(self, "Error", "Please provide an OpenAI API Key.")
+            return
 
         if not doc_path:
             QMessageBox.critical(self, "Error", "Please select an input document.")
@@ -91,20 +104,24 @@ class CommenterApp(QWidget):
         if not os.path.exists(doc_path):
             QMessageBox.critical(self, "Error", f"Input document not found: {doc_path}")
             return
-            
-        if not json_path:
-            QMessageBox.critical(self, "Error", "Please select an annotations JSON file.")
-            return
-        if not os.path.exists(json_path):
-            QMessageBox.critical(self, "Error", f"JSON file not found: {json_path}")
-            return
 
         try:
-            self.lbl_status.setText("Running...")
+            self.lbl_status.setText("Processing with LLM...")
             QApplication.processEvents()
 
-            # Logic lifted from comment.py main()
-            annotations = comment.load_annotations(json_path)
+            # Set API key
+            os.environ["OPENAI_API_KEY"] = api_key
+            
+            # Generate annotations via LLM
+            annotations = comment.generate_annotations(
+                doc_path, 
+                rubric_path, 
+                assign_kb_path, 
+                general_kb_path
+            )
+            
+            self.lbl_status.setText("Annotating document...")
+            QApplication.processEvents()
             
             base, ext = os.path.splitext(doc_path)
             out_path = f"{base}-annotated{ext}"
