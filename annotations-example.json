@@ -1,0 +1,22 @@
+[
+  {
+    "target": {
+      "mode": "text",
+      "text": "an assignment",
+      "match_type": "exact",
+      "case_sensitive": false,
+      "whole_word": true,
+      "scope": "sentence",
+      "occurrence": "first"
+    },
+    "comment": {
+      "text": "This is my comment.",
+      "author": "Jared",
+      "metadata": {
+        "category": "review",
+        "severity": "low"
+      }
+    }
+  }
+]
+
